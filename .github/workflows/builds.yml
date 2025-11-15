@@ -92,6 +92,24 @@ jobs:
         run: |
           Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force
 
+      # Copy any .gdextension files into the final bin/ folder so they are included in the artifact
+      - name: Copy .gdextension into bin (non-windows)
+        if: ${{ matrix.target.platform != 'windows' }}
+        shell: sh
+        run: |
+          mkdir -p "${{ github.workspace }}/bin"
+          find "${{ github.workspace }}" -maxdepth 3 -type f -name '*.gdextension' -exec cp -v {} "${{ github.workspace }}/bin/" \;
+
+      - name: Copy .gdextension into bin (windows)
+        if: ${{ matrix.target.platform == 'windows' }}
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:GITHUB_WORKSPACE 'bin'
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter '*.gdextension' -Recurse -File | ForEach-Object { Copy-Item -Path $_.FullName -Destination $bin -Force }
+
+
+
       # Upload the build
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
