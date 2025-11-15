@@ -92,22 +92,32 @@ jobs:
         run: |
           Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force
 
-      # Copy any .gdextension files into the final bin/ folder so they are included in the artifact
-      - name: Copy .gdextension into bin (non-windows)
+      # Copy the .gdextension file(s) from ./demo/bin into the final bin/ folder so they are included in the artifact
+      - name: Copy .gdextension from demo/bin (non-windows)
         if: ${{ matrix.target.platform != 'windows' }}
         shell: sh
         run: |
-          mkdir -p "${{ github.workspace }}/bin"
-          find "${{ github.workspace }}" -maxdepth 3 -type f -name '*.gdextension' -exec cp -v {} "${{ github.workspace }}/bin/" \;
+          mkdir -p "$GITHUB_WORKSPACE/bin"
+          if [ -d "$GITHUB_WORKSPACE/demo/bin" ]; then
+            for f in "$GITHUB_WORKSPACE/demo/bin"/*.gdextension; do
+              [ -e "$f" ] || continue
+              cp -v "$f" "$GITHUB_WORKSPACE/bin/"
+            done
+          fi
 
-      - name: Copy .gdextension into bin (windows)
+      - name: Copy .gdextension from demo/bin (windows)
         if: ${{ matrix.target.platform == 'windows' }}
         shell: pwsh
         run: |
           $bin = Join-Path $env:GITHUB_WORKSPACE 'bin'
           New-Item -ItemType Directory -Force -Path $bin | Out-Null
-          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter '*.gdextension' -Recurse -File | ForEach-Object { Copy-Item -Path $_.FullName -Destination $bin -Force }
-
+          $src = Join-Path $env:GITHUB_WORKSPACE 'demo\bin'
+          if (Test-Path $src) {
+            Get-ChildItem -Path $src -Filter '*.gdextension' -File -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                Copy-Item -Path $_.FullName -Destination $bin -Force
+              }
+          }
 
 
       # Upload the build
