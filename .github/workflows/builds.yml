@@ -88,6 +88,11 @@ jobs:
         run: |
           Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force -ErrorAction SilentlyContinue
 
+      - name: Copy extra files to addon folder
+        shell: sh
+        run: |
+          cp -n '${{ github.workspace }}/README.md' '${{ github.workspace }}/LICENSE.md' '${{ github.workspace }}/demo/addons/example_plugin/'
+
       # Prepare artifact directory containing the entire demo/addons directory (excluding *.iud)
       - name: Prepare artifact contents (Linux / macOS)
         if: ${{ matrix.target.platform != 'windows' }}

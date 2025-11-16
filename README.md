@@ -34,6 +34,24 @@ If the build command worked, you can test it with the [demo](./demo) project. Im
 ```
 Type: 24
 ```
+#### Beware: 
+required library folder structure:
+thirdparty/
+├── vosk/
+│   ├── windows/
+│   │   └── vosk.dll
+│   ├── linux/
+│   │   └── libvosk.so
+│   └── macos/
+│       └── libvosk.dylib
+└── portaudio/
+    ├── windows/
+    │   └── portaudio.dll
+    ├── linux/
+    │   └── libportaudio.so
+    └── macos/
+        └── libportaudio.dylib
+
 
 ### Configuring an IDE
 You can develop your own extension with any text editor and by invoking scons on the command line, but if you want to work with an IDE (Integrated Development Environment), you can use a compilation database file called `compile_commands.json`. Most IDEs should automatically identify this file, and self-configure appropriately.
