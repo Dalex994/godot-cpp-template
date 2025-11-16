@@ -1,6 +1,8 @@
 # Godot auto generated files
 *.gen.*
 .godot/
+/demo/*/*.import
+/demo/*/*.uid
 
 # Ignore library files but not the gdextension file
 demo/bin/*
@@ -49,6 +51,7 @@ compile_commands.json
 # Other stuff
 *.log
 .cache/
+__pycache__/
 
 # VSCode
 .vscode/*

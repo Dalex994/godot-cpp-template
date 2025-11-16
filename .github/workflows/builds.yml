@@ -1,18 +1,30 @@
 name: Build GDExtension
 on:
-  workflow_call:
-  push:
-  pull_request:
-  merge_group:
+  workflow_dispatch:
+    inputs:
+      target-type:
+        description: "Choose build type"
+        required: true
+        default: "template_debug"
+        type: choice
+        options:
+          - template_debug
+          - template_release
+      float-precision:
+        description: "Choose float precision"
+        required: true
+        default: "single"
+        type: choice
+        options:
+          - single
+          - double
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        # A build is made for every possible combination of parameters
-        # You can add or remove entries from the arrays of each parameter to customize which builds you want to run
-        # See https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow
+        # build for every platform/arch combination, but target-type and precision come from the workflow dispatch inputs
         target:
           [
             { platform: linux, arch: x86_64, os: ubuntu-22.04 },
@@ -30,41 +42,26 @@ jobs:
             { platform: ios, arch: arm64, os: macos-latest },
             { platform: web, arch: wasm32, os: ubuntu-22.04 },
           ]
-        target-type: [template_debug, template_release]
-        float-precision: [single, double]
+        target-type: ["${{ github.event.inputs['target-type'] }}"]
+        float-precision: ["${{ github.event.inputs['float-precision'] }}"]
 
     runs-on: ${{ matrix.target.os }}
     steps:
-      # Clone this repository
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
 
-      # Lint
-      #- name: Setup clang-format
-      #  shell: bash
-      #  run: |
-      #    python -m pip install clang-format
-      #- name: Run clang-format
-      #  shell: bash
-      #  run: |
-      #    clang-format src/** --dry-run --Werror
-
-      # Add linux x86_32 toolchain
       - name: Install multilib support
         if: ${{ matrix.target.platform == 'linux' && matrix.target.arch == 'x86_32' }}
         run: |
           sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib
 
-      # Setup dependencies
       - name: Setup godot-cpp
         uses: ./godot-cpp/.github/actions/setup-godot-cpp
         with:
           platform: ${{ matrix.target.platform }}
           em-version: 3.1.62
-
-      # Build GDExtension (with caches)
 
       - name: Restore .scons_cache
         uses: ./godot-cpp/.github/actions/godot-cache-restore
@@ -72,7 +69,7 @@ jobs:
           scons-cache: ${{ github.workspace }}/.scons-cache/
           cache-name: ${{ matrix.target.platform }}_${{ matrix.target.arch }}_${{ matrix.float-precision }}_${{ matrix.target-type }}
 
-      - name: Build GDExtension Debug Build
+      - name: Build GDExtension
         shell: sh
         env:
           SCONS_CACHE: ${{ github.workspace }}/.scons-cache/
@@ -85,51 +82,56 @@ jobs:
           scons-cache: ${{ github.workspace }}/.scons-cache/
           cache-name: ${{ matrix.target.platform }}_${{ matrix.target.arch }}_${{ matrix.float-precision }}_${{ matrix.target-type }}
 
-      # Clean up compilation files
       - name: Windows - Delete compilation files
         if: ${{ matrix.target.platform == 'windows' }}
         shell: pwsh
         run: |
-          Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force
+          Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force -ErrorAction SilentlyContinue
 
-      # Copy the .gdextension file(s) from ./demo/bin into the final bin/ folder so they are included in the artifact
-      - name: Copy .gdextension from demo/bin (non-windows)
+      # Prepare artifact directory containing the entire demo/addons directory (excluding *.iud)
+      - name: Prepare artifact contents (Linux / macOS)
         if: ${{ matrix.target.platform != 'windows' }}
-        shell: sh
+        shell: bash
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/bin"
+          ART="$GITHUB_WORKSPACE/artifact"
+          rm -rf "$ART"
+          mkdir -p "$ART"
+          if [ -d "$GITHUB_WORKSPACE/demo/addons" ]; then
+            rsync -a --prune-empty-dirs --exclude='*.iud' "$GITHUB_WORKSPACE/demo/addons/" "$ART/addons/"
+          fi
+          
           if [ -d "$GITHUB_WORKSPACE/demo/bin" ]; then
-            for f in "$GITHUB_WORKSPACE/demo/bin"/*.gdextension; do
-              [ -e "$f" ] || continue
-              cp -v "$f" "$GITHUB_WORKSPACE/bin/"
-            done
+            mkdir -p "$ART/addons/bin"
+            rsync -a "$GITHUB_WORKSPACE/demo/bin/" "$ART/addons/bin/"
           fi
 
-      - name: Copy .gdextension from demo/bin (windows)
+      - name: Prepare artifact contents (Windows)
         if: ${{ matrix.target.platform == 'windows' }}
         shell: pwsh
         run: |
-          $bin = Join-Path $env:GITHUB_WORKSPACE 'bin'
-          New-Item -ItemType Directory -Force -Path $bin | Out-Null
-          $src = Join-Path $env:GITHUB_WORKSPACE 'demo\bin'
+          $art = Join-Path $env:GITHUB_WORKSPACE 'artifact'
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $art
+          New-Item -ItemType Directory -Force -Path $art | Out-Null
+          $src = Join-Path $env:GITHUB_WORKSPACE 'demo\addons'
+          $dst = Join-Path $art 'addons'
           if (Test-Path $src) {
-            Get-ChildItem -Path $src -Filter '*.gdextension' -File -ErrorAction SilentlyContinue |
-              ForEach-Object {
-                Copy-Item -Path $_.FullName -Destination $bin -Force
-              }
+            # robocopy copies and can exclude files by pattern
+            robocopy $src $dst /E /XF *.iud | Out-Null
+          }
+          $binSrc = Join-Path $env:GITHUB_WORKSPACE 'demo\bin'
+          $binDst = Join-Path $dst 'bin'
+          if (Test-Path $binSrc) {
+            New-Item -ItemType Directory -Force -Path $binDst | Out-Null
+            robocopy $binSrc $binDst /E | Out-Null
           }
 
-
-      # Upload the build
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: godot-cpp-template-${{ matrix.target.platform }}-${{ matrix.target.arch }}-${{ matrix.float-precision }}-${{ matrix.target-type }}
           path: |
-            ${{ github.workspace }}/bin/**
+            ${{ github.workspace }}/artifact/**
 
-  # Merges all the build artifacts together into a single godot-cpp-template artifact.
-  # If you comment out this step, all the builds will be uploaded individually.
   merge:
     runs-on: ubuntu-22.04
     needs: build
